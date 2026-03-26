@@ -1,0 +1,66 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# DocMedRepo — Root .gitignore
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Environment / Secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.staging
+*.pem
+*.key
+
+# ── Node.js (Backend) ────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Python (AI Analyzer) ─────────────────────────────────────────────────────
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# ── Uploaded files (local dev storage) ────────────────────────────────────────
+uploads/
+
+# ── Flutter / Dart (Mobile App) ───────────────────────────────────────────────
+# (mobile_app/.gitignore handles most, but for safety)
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/pubspec.lock
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.iml
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Logs & temp ───────────────────────────────────────────────────────────────
+*.log
+logs/
+tmp/
+output*.txt
+check.js
+
+# ── Firebase ──────────────────────────────────────────────────────────────────
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
