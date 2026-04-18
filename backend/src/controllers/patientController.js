@@ -83,7 +83,8 @@ async function getMyReports(req, res, next) {
       query.fileType = req.query.fileType.toLowerCase();
     }
     if (req.query.search) {
-      query.description = { $regex: req.query.search, $options: 'i' };
+      const escaped = req.query.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.description = { $regex: escaped, $options: 'i' };
     }
     if (req.query.startDate || req.query.endDate) {
       query.createdAt = {};

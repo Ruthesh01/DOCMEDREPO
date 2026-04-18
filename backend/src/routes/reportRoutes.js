@@ -15,6 +15,10 @@ router.post('/upload',
   audit('UPLOAD_REPORT'),
   uploadReport
 );
+
+if (process.env.NODE_ENV === 'development') {
+  router.get('/local/*', getLocalReportFile);
+}
 router.get('/:id', audit('ACCESS_REPORT', (req) => `report:${req.params.id}`), getReport);
 router.get('/:id/status', getReportStatus);
 router.get('/:id/url',
@@ -26,8 +30,5 @@ router.delete('/:id',
   deleteReport
 );
 
-if (process.env.NODE_ENV === 'development') {
-  router.get('/local/*', getLocalReportFile);
-}
 
 module.exports = router;

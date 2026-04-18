@@ -15,6 +15,10 @@ const AI_SERVICE_URL = process.env.AI_ANALYZER_URL || 'http://localhost:8000';
 // Must match AI_SERVICE_SECRET in the FastAPI environment (H-01 fix).
 const AI_SERVICE_SECRET = process.env.AI_SERVICE_SECRET || '';
 
+if (process.env.NODE_ENV === 'production' && !AI_SERVICE_SECRET) {
+  throw new Error('AI_SERVICE_SECRET must be set in production to encrypt inter-service traffic');
+}
+
 /**
  * Processes a single AI analysis job.
  * Fetches the report, calls the FastAPI analyzer, updates the DB,

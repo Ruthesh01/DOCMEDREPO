@@ -28,6 +28,28 @@ function detectFileType(buffer) {
   return null;
 }
 
+async function _requireValidQrSession(token, patientId, res) {
+  if (!token) {
+    res.status(400).json({ error: 'QR token is required' });
+    return false;
+  }
+  
+  const QrToken = require('../models/QrToken');
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const qrRecord = await QrToken.findOne({
+    token,
+    patientId,
+    used:      true,
+    expiresAt: { $gt: twentyFourHoursAgo },
+  });
+  
+  if (!qrRecord) {
+    res.status(401).json({ error: 'Valid QR token is required' });
+    return false;
+  }
+  return true;
+}
+
 // Store file in memory for validation before S3 upload
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -97,19 +119,7 @@ async function getReport(req, res, next) {
       }
     } else if (req.role === 'doctor' || req.role === 'admin') {
       const { token } = req.query;
-      if (!token) return res.status(400).json({ error: 'QR token is required' });
-      
-      const QrToken = require('../models/QrToken');
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const qrRecord = await QrToken.findOne({
-        token,
-        patientId: report.patientId,
-        used:      true,
-        expiresAt: { $gt: twentyFourHoursAgo },
-      });
-      if (!qrRecord) {
-        return res.status(401).json({ error: 'Valid QR token is required' });
-      }
+      if (!(await _requireValidQrSession(token, report.patientId, res))) return;
     }
 
     res.status(200).json({ report });
@@ -133,19 +143,7 @@ async function getReportUrl(req, res, next) {
       }
     } else if (req.role === 'doctor' || req.role === 'admin') {
       const { token } = req.query;
-      if (!token) return res.status(400).json({ error: 'QR token is required' });
-      
-      const QrToken = require('../models/QrToken');
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const qrRecord = await QrToken.findOne({
-        token,
-        patientId: report.patientId,
-        used:      true,
-        expiresAt: { $gt: twentyFourHoursAgo },
-      });
-      if (!qrRecord) {
-        return res.status(401).json({ error: 'Valid QR token is required' });
-      }
+      if (!(await _requireValidQrSession(token, report.patientId, res))) return;
     }
 
     const url = await getSignedUrl(report.fileUrl);
@@ -170,19 +168,7 @@ async function getReportStatus(req, res, next) {
       }
     } else if (req.role === 'doctor' || req.role === 'admin') {
       const { token } = req.query;
-      if (!token) return res.status(400).json({ error: 'QR token is required' });
-      
-      const QrToken = require('../models/QrToken');
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const qrRecord = await QrToken.findOne({
-        token,
-        patientId: report.patientId,
-        used:      true,
-        expiresAt: { $gt: twentyFourHoursAgo },
-      });
-      if (!qrRecord) {
-        return res.status(401).json({ error: 'Valid QR token is required' });
-      }
+      if (!(await _requireValidQrSession(token, report.patientId, res))) return;
     }
 
     res.status(200).json({

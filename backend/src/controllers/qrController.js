@@ -52,7 +52,7 @@ async function scanQr(req, res, next) {
 
     // H-03: atomic check-and-consume — no race window
     const qrRecord = await QrToken.findOneAndUpdate(
-      { token, used: false },
+      { token, used: false, expiresAt: { $gt: new Date() } },
       { $set: { used: true } },
       { new: false }  // return the document BEFORE the update to check expiry
     );

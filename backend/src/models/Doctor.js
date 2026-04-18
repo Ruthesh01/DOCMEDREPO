@@ -23,7 +23,8 @@ const doctorSchema = new mongoose.Schema(
       select:   false,
     },
     passwordChangedAt: {
-      type: Date,
+      type:     Date,
+      select:   false,
     },
     specialization: {
       type:     String,

@@ -36,7 +36,8 @@ const patientSchema = new mongoose.Schema(
       select:   false, // never returned in queries by default
     },
     passwordChangedAt: {
-      type: Date,
+      type:     Date,
+      select:   false,
     },
     bloodGroup: {
       type: String,

@@ -1,5 +1,12 @@
 'use strict';
 
+/**
+ * NOTE: This is a standalone utility for raw AES-256-GCM encryption/decryption.
+ * It is currently not used in the main application flow as field-level encryption
+ * is handled automatically via the `mongoose-field-encryption` plugin on the models.
+ * It is kept here for targeted custom encryption tasks or manual data migrations.
+ */
+
 const crypto = require('crypto');
 
 const ALGORITHM = 'aes-256-gcm';

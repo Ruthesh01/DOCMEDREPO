@@ -13,6 +13,9 @@ class ApiService {
   static String get _baseUrl {
     const defined = String.fromEnvironment('API_BASE_URL');
     if (defined.isNotEmpty) return defined;
+    // NOTE: 10.0.2.2 only works for the Android emulator. 
+    // It will not work on physical devices or iOS simulators. 
+    // Pass --dart-define=API_BASE_URL=http://<YOUR_IP>:5000/api for real devices.
     return kIsWeb ? 'http://localhost:5000/api' : 'http://10.0.2.2:5000/api';
   }
 
