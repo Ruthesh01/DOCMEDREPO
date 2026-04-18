@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -98,12 +97,12 @@ class _UploadReportScreenState extends State<UploadReportScreen> {
               border: Border.all(
                 color: _fileError != null
                     ? theme.colorScheme.error
-                    : theme.colorScheme.outline.withOpacity(0.4),
+                    : theme.colorScheme.outline.withValues(alpha: 0.4),
                 width: 1.5,
                 style: BorderStyle.solid,
               ),
               borderRadius: BorderRadius.circular(16),
-              color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
             ),
             child: _selectedFile == null
                 ? Column(
@@ -213,7 +212,7 @@ class _UploadReportScreenState extends State<UploadReportScreen> {
           margin: const EdgeInsets.symmetric(vertical: 16),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withOpacity(0.06),
+            color: theme.colorScheme.primary.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/notification_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_cache_service.dart';
 import '../widgets/loading_skeleton.dart';
@@ -9,6 +10,7 @@ import '../widgets/error_state.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/app_button.dart';
 import 'doctor_patient_details_screen.dart';
+import 'notification_screen.dart';
 
 class DoctorDashboardScreen extends StatefulWidget {
   const DoctorDashboardScreen({super.key});
@@ -62,7 +64,7 @@ class _DoctorDashboardScreenState extends State<DoctorDashboardScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => DoctorPatientDetailsScreen(patient: patient),
+          builder: (_) => DoctorPatientDetailsScreen(patient: patient, qrToken: token),
         ),
       );
     } on ApiException catch (e) {
@@ -100,11 +102,30 @@ class _DoctorDashboardScreenState extends State<DoctorDashboardScreen> {
       appBar: AppBar(
         title: const Text('DocMedRepo'),
         actions: [
+          Consumer<NotificationProvider>(
+            builder: (context, notif, child) {
+              return IconButton(
+                icon: Badge(
+                  isLabelVisible: notif.unreadCount > 0,
+                  label: Text('${notif.unreadCount}'),
+                  child: const Icon(Icons.notifications_none_rounded),
+                ),
+                onPressed: () {
+                  notif.markAsRead();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NotificationScreen()),
+                  );
+                },
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             onPressed: () async {
               await context.read<AuthProvider>().logout();
-              if (mounted) Navigator.pushReplacementNamed(context, '/');
+              if (!context.mounted) return;
+              Navigator.pushReplacementNamed(context, '/');
             },
           ),
         ],
@@ -201,7 +222,7 @@ class _StatCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -238,7 +259,7 @@ class _PrescriptionTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: theme.colorScheme.secondary.withOpacity(0.12),
+          backgroundColor: theme.colorScheme.secondary.withValues(alpha: 0.12),
           child: Text(
             (patient?['name'] as String? ?? '?')[0].toUpperCase(),
             style: TextStyle(

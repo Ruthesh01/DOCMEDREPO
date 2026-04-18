@@ -7,8 +7,15 @@ If the primary model fails or returns invalid JSON, falls back to
 the local HuggingFace model via fallback_model.py.
 
 Confidence warning is appended to both summaries when score < 0.6.
+
+Fixes applied:
+  C-01 — analyze_with_fallback() is now run in a thread-pool via
+          asyncio.run_in_executor so it never blocks the event loop.
+  C-02 — AsyncOpenAI is now a module-level singleton; a single connection
+          pool is reused across all requests instead of a new one per call.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -26,6 +33,28 @@ LOW_CONFIDENCE_THRESHOLD = 0.6
 LOW_CONFIDENCE_WARNING = (
     "\n\n⚠️ Low confidence result. Please have a doctor review this report."
 )
+
+# ── Singleton OpenAI client (C-02 FIX) ───────────────────────────────────────
+# A single AsyncOpenAI instance reuses its underlying httpx connection pool
+# across all requests, avoiding per-request connection storms and
+# file-descriptor exhaustion under concurrent load.
+_openai_client: AsyncOpenAI | None = None
+
+
+def _get_openai_client() -> AsyncOpenAI:
+    """
+    Returns the module-level AsyncOpenAI singleton, creating it on first call.
+    Safe for asyncio (runs in a single-threaded event loop).
+    """
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = AsyncOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            timeout=httpx.Timeout(60.0, connect=10.0),
+        )
+        logger.debug("AsyncOpenAI singleton created")
+    return _openai_client
+
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a highly accurate medical report analysis assistant.
@@ -71,7 +100,6 @@ def _build_user_message(report_text: str) -> str:
     Returns:
         Formatted prompt string
     """
-    # Truncate very long reports to avoid hitting context limits
     max_chars = 12_000
     if len(report_text) > max_chars:
         logger.warning(
@@ -82,30 +110,33 @@ def _build_user_message(report_text: str) -> str:
     return f"Analyze the following medical report and return the JSON:\n\n{report_text}"
 
 
-def _parse_llm_json(raw: str) -> dict[str, Any]:
+def _parse_llm_json(raw: str | None) -> dict[str, Any]:
     """
     Safely parses the LLM response as JSON.
-    Strips any accidental markdown fences before parsing.
+
+    L-04 FIX: The previous version included markdown fence-stripping logic
+    (removing ```json ... ``` blocks). That code is dead when
+    response_format={"type": "json_object"} is set — OpenAI guarantees bare
+    JSON in that mode. Keeping dead code creates confusion about whether the
+    model might return fences, and masks the real guard: checking for an
+    empty response.
+
+    The fence-stripping block has been removed. The null/empty guard is the
+    only pre-processing now; everything else is a straight json.loads().
 
     Args:
-        raw: Raw string response from the LLM
+        raw: Raw string response from the LLM (may be None on empty finish)
 
     Returns:
         Parsed dict
 
     Raises:
-        ValueError: If the string cannot be parsed as JSON
+        ValueError: If raw is empty/None or cannot be parsed as JSON
     """
-    cleaned = raw.strip()
+    if not raw or not raw.strip():
+        raise ValueError("LLM returned an empty response")
 
-    # Strip ```json ... ``` or ``` ... ``` fences if the model adds them
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        # Remove first line (```json or ```) and last line (```)
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        cleaned = "\n".join(lines).strip()
-
-    return json.loads(cleaned)
+    return json.loads(raw.strip())
 
 
 def _validate_and_normalise(data: dict[str, Any], source: str) -> dict[str, Any]:
@@ -144,13 +175,16 @@ def _validate_and_normalise(data: dict[str, Any], source: str) -> dict[str, Any]
             })
     result["abnormal_values"] = validated_abnormals
 
-    # Append low-confidence warning to both summaries
+    # Append low-confidence warning — guard against double-append if this
+    # function is ever called more than once on the same result dict.
     if result["confidence_score"] < LOW_CONFIDENCE_THRESHOLD:
         logger.warning(
             f"Low confidence score: {result['confidence_score']:.2f} — appending warning"
         )
-        result["summary_for_patient"] += LOW_CONFIDENCE_WARNING
-        result["summary_for_doctor"]  += LOW_CONFIDENCE_WARNING
+        if LOW_CONFIDENCE_WARNING not in result["summary_for_patient"]:
+            result["summary_for_patient"] += LOW_CONFIDENCE_WARNING
+        if LOW_CONFIDENCE_WARNING not in result["summary_for_doctor"]:
+            result["summary_for_doctor"]  += LOW_CONFIDENCE_WARNING
 
     return result
 
@@ -158,6 +192,7 @@ def _validate_and_normalise(data: dict[str, Any], source: str) -> dict[str, Any]
 async def _analyze_with_openai(report_text: str) -> dict[str, Any]:
     """
     Calls OpenAI GPT-4o with the report text and returns parsed structured output.
+    Uses the module-level singleton client (C-02 fix).
 
     Args:
         report_text: Extracted text from the medical report
@@ -169,10 +204,8 @@ async def _analyze_with_openai(report_text: str) -> dict[str, Any]:
         ValueError: If the response cannot be parsed as valid JSON
         APIError: If the OpenAI API returns an error
     """
-    client = AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        timeout=httpx.Timeout(60.0, connect=10.0),
-    )
+    # C-02 FIX: reuse the singleton — no new connection pool created per call
+    client = _get_openai_client()
 
     response = await client.chat.completions.create(
         model="gpt-4o",
@@ -181,12 +214,12 @@ async def _analyze_with_openai(report_text: str) -> dict[str, Any]:
             {"role": "user",   "content": _build_user_message(report_text)},
         ],
         max_tokens=1500,
-        temperature=0.1,  # Low temperature for consistent, factual output
-        response_format={"type": "json_object"},  # Enforce JSON mode
+        temperature=0.1,
+        response_format={"type": "json_object"},
     )
 
     raw = response.choices[0].message.content
-    logger.debug(f"OpenAI raw response (first 200 chars): {raw[:200]}")
+    logger.debug(f"OpenAI raw response (first 200 chars): {raw[:200] if raw else '<empty>'}")
 
     parsed = _parse_llm_json(raw)
     return _validate_and_normalise(parsed, source="primary")
@@ -199,6 +232,11 @@ async def analyze_report(report_text: str) -> dict[str, Any]:
     Attempts primary analysis via OpenAI GPT-4o.
     On any failure (API error, timeout, invalid JSON), falls back to
     the local HuggingFace model.
+
+    The fallback model (analyze_with_fallback) is synchronous and CPU-bound
+    (NER inference + regex). Calling it directly inside an async handler would
+    freeze the uvicorn event loop and block all other in-flight requests.
+    C-01 FIX: it is offloaded to a thread-pool worker via run_in_executor.
 
     Args:
         report_text: Extracted plain text from the medical report
@@ -231,9 +269,13 @@ async def analyze_report(report_text: str) -> dict[str, Any]:
         logger.warning("OPENAI_API_KEY not set — using fallback model directly")
 
     # ── Fallback ──────────────────────────────────────────────────────────────
-    logger.info("Running analysis with fallback model")
+    # C-01 FIX: run_in_executor moves the blocking synchronous call off the
+    # event loop into a ThreadPoolExecutor worker thread, so uvicorn can
+    # continue serving other requests while the fallback runs.
+    logger.info("Running analysis with fallback model (offloaded to thread pool)")
     try:
-        raw_result = analyze_with_fallback(report_text)
+        loop = asyncio.get_event_loop()
+        raw_result = await loop.run_in_executor(None, analyze_with_fallback, report_text)
         result = _validate_and_normalise(raw_result, source="fallback")
         logger.info(
             f"Fallback analysis succeeded: confidence={result['confidence_score']:.2f}"
@@ -242,7 +284,6 @@ async def analyze_report(report_text: str) -> dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Fallback model also failed: {e}")
-        # Last resort — return a safe empty result with low confidence
         return {
             "diagnoses":             [],
             "abnormal_values":       [],

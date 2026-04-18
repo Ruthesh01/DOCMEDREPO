@@ -1,7 +1,7 @@
 'use strict';
 
 const { Router } = require('express');
-const { uploadReport, getReportUrl, deleteReport, getLocalReportFile } = require('../controllers/reportController');
+const { uploadReport, getReport, getReportStatus, getReportUrl, deleteReport, getLocalReportFile } = require('../controllers/reportController');
 const { authenticate } = require('../middleware/authMiddleware');
 const { uploadLimiter } = require('../middleware/rateLimiter');
 const { audit } = require('../middleware/auditLogger');
@@ -15,8 +15,10 @@ router.post('/upload',
   audit('UPLOAD_REPORT'),
   uploadReport
 );
+router.get('/:id', audit('ACCESS_REPORT', (req) => `report:${req.params.id}`), getReport);
+router.get('/:id/status', getReportStatus);
 router.get('/:id/url',
-  audit('ACCESS_REPORT', (req) => `report:${req.params.id}`),
+  audit('ACCESS_REPORT_FILE', (req) => `report:${req.params.id}`),
   getReportUrl
 );
 router.delete('/:id',

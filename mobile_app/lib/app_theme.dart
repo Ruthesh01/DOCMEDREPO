@@ -76,7 +76,7 @@ class AppTheme {
       bodySmall: TextStyle(
         fontFamily: 'DMSans',
         fontSize: 12,
-        color: secondary.withOpacity(0.7),
+        color: secondary.withValues(alpha: 0.7),
       ),
       labelLarge: TextStyle(
         fontFamily: 'DMSans',
@@ -90,7 +90,7 @@ class AppTheme {
         fontSize: 11,
         fontWeight: FontWeight.w500,
         letterSpacing: 0.8,
-        color: secondary.withOpacity(0.6),
+        color: secondary.withValues(alpha: 0.6),
       ),
     );
   }
@@ -101,15 +101,15 @@ class AppTheme {
   ) {
     return InputDecorationTheme(
       filled: true,
-      fillColor: scheme.surfaceVariant.withOpacity(0.4),
+      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: scheme.outline.withOpacity(0.3)),
+        borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.3)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: scheme.outline.withOpacity(0.3)),
+        borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.3)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -127,7 +127,7 @@ class AppTheme {
       hintStyle: TextStyle(
         fontFamily: 'DMSans',
         fontSize: 14,
-        color: scheme.onSurface.withOpacity(0.4),
+        color: scheme.onSurface.withValues(alpha: 0.4),
       ),
     );
   }
@@ -138,7 +138,7 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.grey.withOpacity(0.12)),
+          side: BorderSide(color: Colors.grey.withValues(alpha: 0.12)),
         ),
         margin: const EdgeInsets.symmetric(vertical: 6),
       );
@@ -202,7 +202,7 @@ class AppTheme {
       surface: _surfaceLight,
       background: _surfaceLight,
     ).copyWith(
-      surfaceVariant: const Color(0xFFE8F0F8),
+      surfaceContainerHighest: const Color(0xFFE8F0F8),
     );
 
     return ThemeData(
@@ -242,7 +242,7 @@ class AppTheme {
       surface: _surfaceDark,
       background: _surfaceDark,
     ).copyWith(
-      surfaceVariant: const Color(0xFF1E293B),
+      surfaceContainerHighest: const Color(0xFF1E293B),
     );
 
     return ThemeData(

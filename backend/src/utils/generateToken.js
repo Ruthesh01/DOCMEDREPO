@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 
@@ -51,11 +52,14 @@ function verifyRefreshToken(token) {
 }
 
 /**
- * Generates a cryptographically random 6-digit OTP string.
+ * Generates a cryptographically secure random 6-digit OTP string.
+ * Uses crypto.randomInt (CSPRNG) instead of Math.random (PRNG) to ensure
+ * the OTP cannot be predicted from observable process state.
  * @returns {string}
  */
 function generateOtp() {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // crypto.randomInt(min, max) returns a value in [min, max) using the OS CSPRNG.
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 module.exports = {

@@ -122,7 +122,7 @@ class _PatientRegisterScreenState extends State<PatientRegisterScreen> {
 
               // Blood group dropdown
               DropdownButtonFormField<String>(
-                value: _bloodGroup,
+                initialValue: _bloodGroup,
                 decoration: const InputDecoration(
                   labelText: 'Blood Group (optional)',
                   prefixIcon: Icon(Icons.bloodtype_outlined),

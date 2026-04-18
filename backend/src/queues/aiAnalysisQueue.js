@@ -2,6 +2,14 @@
 
 const Bull = require('bull');
 
+// Jittered-exponential backoff: base delay doubles per attempt (5s → 10s → 20s)
+// plus 0–2s random jitter. Must be passed in queue settings (Bull 4.x).
+function jitteredExponential(attemptsMade) {
+  const base   = 5000 * Math.pow(2, attemptsMade - 1);
+  const jitter = Math.floor(Math.random() * 2000);
+  return base + jitter;
+}
+
 let analysisQueue = null;
 
 /**
@@ -16,13 +24,17 @@ function getAnalysisQueue() {
 
     analysisQueue = new Bull('ai-analysis', redisUrl, {
       defaultJobOptions: {
-        attempts:  3,
+        attempts: 3,
         backoff: {
-          type:  'exponential',
-          delay: 5000, // 5s, 10s, 20s
+          type: 'jittered-exponential',
         },
         removeOnComplete: true,
         removeOnFail:     false, // keep failed jobs for debugging
+      },
+      settings: {
+        backoffStrategies: {
+          'jittered-exponential': jitteredExponential,
+        },
       },
     });
 

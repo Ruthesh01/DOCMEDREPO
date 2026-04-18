@@ -61,7 +61,7 @@ class _DashboardSkeleton extends StatelessWidget {
           const SizedBox(height: 8),
           LoadingSkeleton.textLine(width: 200),
           const SizedBox(height: 28),
-          LoadingSkeleton(height: 120, borderRadius: 20),
+          const LoadingSkeleton(height: 120, borderRadius: 20),
           const SizedBox(height: 16),
           LoadingSkeleton.textLine(width: 140),
           const SizedBox(height: 12),

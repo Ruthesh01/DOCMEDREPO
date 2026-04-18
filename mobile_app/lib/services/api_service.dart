@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -92,7 +90,10 @@ class ApiService {
   Future<bool> _tryRefreshToken() async {
     try {
       final storedRefresh = await LocalCacheService.instance.getRefreshToken();
-      if (storedRefresh == null) return false;
+      if (storedRefresh == null) {
+        await clearTokens();
+        return false;
+      }
 
       final res = await http.post(
         Uri.parse('$_baseUrl/auth/refresh-token'),
@@ -107,9 +108,12 @@ class ApiService {
           refreshToken: data['refreshToken'],
         );
         return true;
+      } else {
+        await clearTokens();
       }
     } catch (e) {
       debugPrint('[ApiService] Token refresh failed: $e');
+      await clearTokens();
     }
     return false;
   }
@@ -162,6 +166,14 @@ class ApiService {
     _parse(res);
   }
 
+  // ── Push Notifications ────────────────────────────────────────────────────
+
+  Future<void> updateFcmToken(String role, String fcmToken) async {
+    final endpoint = role == 'doctor' ? '/doctors/me/fcm-token' : '/patients/me/fcm-token';
+    final res = await _request('POST', endpoint, body: {'fcmToken': fcmToken});
+    _parse(res);
+  }
+
   // ── Patient ───────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getMyProfile() async {
@@ -174,13 +186,31 @@ class ApiService {
     return _parse(res);
   }
 
-  Future<Map<String, dynamic>> getMyReports() async {
-    final res = await _request('GET', '/patients/me/reports');
+  Future<Map<String, dynamic>> getMyReports({
+    int page = 1,
+    int limit = 20,
+    String? status,
+    String? fileType,
+    String? search,
+    String? startDate,
+    String? endDate,
+  }) async {
+    final Map<String, String> q = {
+      'page': page.toString(),
+      'limit': limit.toString(),
+      if (status != null && status.isNotEmpty) 'status': status,
+      if (fileType != null && fileType.isNotEmpty) 'fileType': fileType,
+      if (search != null && search.isNotEmpty) 'search': search,
+      if (startDate != null && startDate.isNotEmpty) 'startDate': startDate,
+      if (endDate != null && endDate.isNotEmpty) 'endDate': endDate,
+    };
+    final qs = Uri(queryParameters: q).query;
+    final res = await _request('GET', '/patients/me/reports?$qs');
     return _parse(res);
   }
 
-  Future<Map<String, dynamic>> getMyPrescriptions() async {
-    final res = await _request('GET', '/patients/me/prescriptions');
+  Future<Map<String, dynamic>> getMyPrescriptions({int page = 1, int limit = 20}) async {
+    final res = await _request('GET', '/patients/me/prescriptions?page=$page&limit=$limit');
     return _parse(res);
   }
 
@@ -189,10 +219,20 @@ class ApiService {
     return _parse(res);
   }
 
+  Future<void> deleteAccount(String password) async {
+    final res = await _request('DELETE', '/patients/me', body: {'password': password});
+    _parse(res);
+  }
+
   // ── Doctor ────────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getDoctorProfile() async {
     final res = await _request('GET', '/doctors/me');
+    return _parse(res);
+  }
+
+  Future<Map<String, dynamic>> updateDoctorProfile(Map<String, dynamic> body) async {
+    final res = await _request('PUT', '/doctors/me', body: body);
     return _parse(res);
   }
 
@@ -204,19 +244,40 @@ class ApiService {
     return _parse(res);
   }
 
+  Future<Map<String, dynamic>> getPatientReports(String patientId, String qrToken) async {
+    final res = await _request('GET', '/doctors/patients/$patientId/reports?token=$qrToken');
+    return _parse(res);
+  }
+
   Future<Map<String, dynamic>> createPrescription(Map<String, dynamic> body) async {
     final res = await _request('POST', '/doctors/prescriptions', body: body);
     return _parse(res);
   }
 
-  Future<Map<String, dynamic>> getDoctorPrescriptions() async {
-    final res = await _request('GET', '/doctors/prescriptions');
+  Future<Map<String, dynamic>> getDoctorPrescriptions({int page = 1, int limit = 20}) async {
+    final res = await _request('GET', '/doctors/prescriptions?page=$page&limit=$limit');
     return _parse(res);
+  }
+
+  Future<void> cancelPrescription(String id) async {
+    final res = await _request('DELETE', '/doctors/prescriptions/$id');
+    _parse(res);
   }
 
   // ── Reports ───────────────────────────────────────────────────────────────
 
-  /// Uploads a report file with a progress callback.
+  /// Uploads a report file.
+  ///
+  /// M-03 FIX: The previous code set Authorization: 'Bearer $_accessToken'
+  /// directly on the MultipartRequest. If _accessToken was null (e.g. token
+  /// had expired between app init and the moment the user tapped upload) this
+  /// sent the literal string "Bearer null", which the server rejected with a
+  /// confusing 401. The auto-refresh logic in _request() was also bypassed
+  /// because MultipartRequest doesn't go through that method.
+  ///
+  /// Fix: always call loadToken() first to ensure _accessToken is current,
+  /// then attempt the upload. On 401, try one token refresh and retry — the
+  /// same pattern _request() uses for all other endpoints.
   Future<Map<String, dynamic>> uploadReport({
     String? filePath,
     Uint8List? fileBytes,
@@ -224,45 +285,77 @@ class ApiService {
     required String description,
     void Function(double progress)? onProgress,
   }) async {
-    final uri = Uri.parse('$_baseUrl/reports/upload');
-    final request = http.MultipartRequest('POST', uri);
-    request.headers['Authorization'] = 'Bearer $_accessToken';
-    request.fields['description'] = description;
+    // M-03: ensure token is fresh before building the request
+    await loadToken();
 
-    final extension = fileName.split('.').last.toLowerCase();
-    final mimeType = {
-      'pdf': MediaType('application', 'pdf'),
-      'jpg': MediaType('image', 'jpeg'),
-      'jpeg': MediaType('image', 'jpeg'),
-      'png': MediaType('image', 'png'),
-    }[extension] ?? MediaType('application', 'octet-stream');
-
-    if (kIsWeb && fileBytes != null) {
-      final multipartFile = http.MultipartFile.fromBytes(
-        'report',
-        fileBytes,
-        filename: fileName,
-        contentType: mimeType,
-      );
-      request.files.add(multipartFile);
-    } else if (filePath != null) {
-      final multipartFile = await http.MultipartFile.fromPath(
-        'report',
-        filePath,
-        contentType: mimeType,
-      );
-      request.files.add(multipartFile);
-    } else {
-      throw Exception('No file data provided for upload');
+    // M-03: if still null after loading, attempt a refresh before giving up
+    if (_accessToken == null) {
+      final refreshed = await _tryRefreshToken();
+      if (!refreshed) {
+        throw const ApiException(message: 'Session expired. Please log in again.', statusCode: 401);
+      }
     }
 
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
+    final uri = Uri.parse('$_baseUrl/reports/upload');
+
+    Future<http.StreamedResponse> buildAndSend() async {
+      final request = http.MultipartRequest('POST', uri);
+      // M-03: _accessToken is guaranteed non-null at this point
+      request.headers['Authorization'] = 'Bearer $_accessToken';
+      request.fields['description'] = description;
+
+      final extension = fileName.split('.').last.toLowerCase();
+      final mimeType = {
+        'pdf':  MediaType('application', 'pdf'),
+        'jpg':  MediaType('image', 'jpeg'),
+        'jpeg': MediaType('image', 'jpeg'),
+        'png':  MediaType('image', 'png'),
+      }[extension] ?? MediaType('application', 'octet-stream');
+
+      if (kIsWeb && fileBytes != null) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'report', fileBytes, filename: fileName, contentType: mimeType,
+        ));
+      } else if (filePath != null) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'report', filePath, contentType: mimeType,
+        ));
+      } else {
+        throw Exception('No file data provided for upload');
+      }
+      return request.send();
+    }
+
+    var streamed = await buildAndSend();
+    var res = await http.Response.fromStream(streamed);
+
+    // M-03: on 401, refresh and retry once (same pattern as _request)
+    if (res.statusCode == 401) {
+      final refreshed = await _tryRefreshToken();
+      if (refreshed) {
+        streamed = await buildAndSend();
+        res = await http.Response.fromStream(streamed);
+      }
+    }
+
     return _parse(res);
   }
 
-  Future<Map<String, dynamic>> getReportUrl(String reportId) async {
-    final res = await _request('GET', '/reports/$reportId/url');
+  Future<Map<String, dynamic>> getReport(String reportId, {String? qrToken}) async {
+    final qs = qrToken != null ? '?token=$qrToken' : '';
+    final res = await _request('GET', '/reports/$reportId$qs');
+    return _parse(res);
+  }
+
+  Future<Map<String, dynamic>> getReportStatus(String reportId, {String? qrToken}) async {
+    final qs = qrToken != null ? '?token=$qrToken' : '';
+    final res = await _request('GET', '/reports/$reportId/status$qs');
+    return _parse(res);
+  }
+
+  Future<Map<String, dynamic>> getReportUrl(String reportId, {String? qrToken}) async {
+    final qs = qrToken != null ? '?token=$qrToken' : '';
+    final res = await _request('GET', '/reports/$reportId/url$qs');
     return _parse(res);
   }
 

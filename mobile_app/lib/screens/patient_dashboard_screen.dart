@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../providers/auth_provider.dart';
+import '../providers/notification_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_cache_service.dart';
 import '../widgets/loading_skeleton.dart';
@@ -11,6 +12,8 @@ import '../widgets/empty_state.dart';
 import '../widgets/app_button.dart';
 import 'upload_report_screen.dart';
 import 'patient_history_screen.dart';
+import 'report_detail_screen.dart';
+import 'notification_screen.dart';
 
 class PatientDashboardScreen extends StatefulWidget {
   const PatientDashboardScreen({super.key});
@@ -113,6 +116,58 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
     }
   }
 
+  // ── Delete Account modal ──────────────────────────────────────────────────
+  Future<void> _showDeleteAccountModal() async {
+    final pwdController = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Delete Account', style: TextStyle(color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('This action is irreversible. All your reports, prescriptions, and data will be permanently deleted.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: pwdController,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Verify Password', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error, foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || pwdController.text.isEmpty) return;
+    if (!mounted) return;
+
+    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+
+    try {
+      await ApiService.instance.deleteAccount(pwdController.text);
+      if (!mounted) return;
+      Navigator.pop(context); // close dialog
+      await context.read<AuthProvider>().logout();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/');
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context); // close dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -131,6 +186,24 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
       appBar: AppBar(
         title: const Text('DocMedRepo'),
         actions: [
+          Consumer<NotificationProvider>(
+            builder: (context, notif, child) {
+              return IconButton(
+                icon: Badge(
+                  isLabelVisible: notif.unreadCount > 0,
+                  label: Text('${notif.unreadCount}'),
+                  child: const Icon(Icons.notifications_none_rounded),
+                ),
+                onPressed: () {
+                  notif.markAsRead();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NotificationScreen()),
+                  );
+                },
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.history_rounded),
             onPressed: () => Navigator.push(
@@ -138,12 +211,27 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
               MaterialPageRoute(builder: (_) => const PatientHistoryScreen()),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: () async {
-              await context.read<AuthProvider>().logout();
-              if (mounted) Navigator.pushReplacementNamed(context, '/');
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (val) async {
+              if (val == 'logout') {
+                await context.read<AuthProvider>().logout();
+                if (!context.mounted) return;
+                Navigator.pushReplacementNamed(context, '/');
+              } else if (val == 'delete') {
+                _showDeleteAccountModal();
+              }
             },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'logout',
+                child: ListTile(leading: Icon(Icons.logout_rounded), title: Text('Logout'), contentPadding: EdgeInsets.zero),
+              ),
+              const PopupMenuItem(
+                value: 'delete',
+                child: ListTile(leading: Icon(Icons.delete_forever_rounded, color: Colors.red), title: Text('Delete Account', style: TextStyle(color: Colors.red)), contentPadding: EdgeInsets.zero),
+              ),
+            ],
           ),
         ],
       ),
@@ -206,7 +294,7 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
               _SectionHeader(title: 'Recent Reports', icon: Icons.description_outlined),
               const SizedBox(height: 12),
               if (_reports.isEmpty)
-                EmptyState(
+                const EmptyState(
                   icon: Icons.description_outlined,
                   title: 'No reports yet',
                   message: 'Upload your first medical report to get started.',
@@ -275,7 +363,7 @@ class _MedCard extends StatelessWidget {
             Container(
               width: 40, height: 40,
               decoration: BoxDecoration(
-                color: theme.colorScheme.secondary.withOpacity(0.12),
+                color: theme.colorScheme.secondary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.medication, color: theme.colorScheme.secondary, size: 20),
@@ -310,16 +398,18 @@ class _ReportCard extends StatelessWidget {
     final theme  = Theme.of(context);
     final status = report['analysisStatus'] as String? ?? 'pending';
     final color  = _statusColor(status, theme);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
+    return GestureDetector(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReportDetailScreen(reportId: report['_id'] as String))),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
             Container(
               width: 40, height: 40,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.08),
+                color: theme.colorScheme.primary.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.description_outlined, color: theme.colorScheme.primary, size: 20),
@@ -340,7 +430,7 @@ class _ReportCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
@@ -350,6 +440,7 @@ class _ReportCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -455,7 +546,7 @@ class _QrBottomSheetState extends State<_QrBottomSheet> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 20)],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 20)],
               ),
               padding: const EdgeInsets.all(16),
               child: QrImageView(data: _currentToken, size: 200),

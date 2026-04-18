@@ -43,6 +43,7 @@ const doctorSchema = new mongoose.Schema(
     },
     otpExpiresAt: {
       type: Date,
+      select: false,
     },
     fcmToken: {
       type: String,

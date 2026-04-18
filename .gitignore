@@ -1,0 +1,103 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# DocMedRepo — .gitignore
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Environment & Secrets (CRITICAL — never commit these) ───────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+firebase-service-account.json
+serviceAccountKey.json
+
+# ── Node.js / Backend ───────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+*.tgz
+.npm
+.node_repl_history
+
+# ── Python / AI Analyzer ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.mypy_cache/
+.ruff_cache/
+
+# ── Flutter / Mobile App ───────────────────────────────────────────────────
+# Build outputs
+mobile_app/build/
+mobile_app/.dart_tool/
+mobile_app/.flutter-plugins
+mobile_app/.flutter-plugins-dependencies
+mobile_app/.packages
+mobile_app/pubspec.lock
+
+# Generated files
+mobile_app/.metadata
+mobile_app/android/.gradle/
+mobile_app/android/app/build/
+mobile_app/android/build/
+mobile_app/android/local.properties
+mobile_app/android/key.properties
+mobile_app/android/app/*.jks
+mobile_app/android/app/*.keystore
+mobile_app/ios/Pods/
+mobile_app/ios/.symlinks/
+mobile_app/ios/Flutter/Flutter.framework
+mobile_app/ios/Flutter/Flutter.podspec
+mobile_app/ios/Flutter/Generated.xcconfig
+mobile_app/ios/Flutter/app.flx
+mobile_app/ios/Flutter/app.zip
+mobile_app/ios/Flutter/engine/
+mobile_app/ios/ServiceDefinitions.json
+mobile_app/ios/Runner/GeneratedPluginRegistrant.*
+
+# ── Uploaded files / temp data ─────────────────────────────────────────────
+backend/uploads/
+backend/test_output.txt
+analysis_output.txt
+verify_output.txt
+verify_output_utf8.txt
+
+# ── IDE / Editor ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ── OS files ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── Logs ───────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Temporary / scratch files ──────────────────────────────────────────────
+move.js
+verify.sh
+*.tmp
+*.bak

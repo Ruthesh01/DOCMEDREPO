@@ -13,6 +13,7 @@ import 'screens/patient_login_screen.dart';
 import 'screens/doctor_login_screen.dart';
 import 'screens/patient_dashboard_screen.dart';
 import 'screens/doctor_dashboard_screen.dart';
+import 'screens/report_detail_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,7 +63,7 @@ class _DocMedRepoAppState extends State<DocMedRepoApp> {
     final notifService = NotificationService.instance;
 
     // Wire notification taps to navigation
-    notifService.setNavigationCallback((type, resourceId) {
+    notifService.setNavigationCallback((type, resourceId) async {
       context.read<NotificationProvider>().handleNotification(type, resourceId ?? '');
 
       final nav = _navigatorKey.currentState;
@@ -70,10 +71,10 @@ class _DocMedRepoAppState extends State<DocMedRepoApp> {
 
       switch (type) {
         case 'report_ready':
-        case 'report_failed':
-          // Navigate to patient dashboard which shows reports
-          nav.pushNamedAndRemoveUntil('/patient/dashboard', (_) => false);
+          await nav.pushNamedAndRemoveUntil('/patient/dashboard', (_) => false);
+          nav.push(MaterialPageRoute(builder: (_) => ReportDetailScreen(reportId: resourceId!)));
           break;
+        case 'report_failed':
         case 'new_prescription':
           nav.pushNamedAndRemoveUntil('/patient/dashboard', (_) => false);
           break;
@@ -219,16 +220,16 @@ class _RoleCard extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.06),
+          color: color.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.2)),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
             Container(
               width: 48, height: 48,
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Icon(icon, color: color, size: 24),

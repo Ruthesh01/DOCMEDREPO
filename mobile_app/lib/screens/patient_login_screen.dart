@@ -69,6 +69,7 @@ class _PatientLoginScreenState extends State<PatientLoginScreen> {
     // Offer biometric enrolment on first login
     await _offerBiometric();
 
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const PatientDashboardScreen()),

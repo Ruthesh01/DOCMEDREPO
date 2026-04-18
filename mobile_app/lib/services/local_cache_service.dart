@@ -1,9 +1,23 @@
+import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// Manages all local persistence:
 ///   - JWT tokens via flutter_secure_storage (encrypted on-device)
-///   - Cached app data via Hive (profile, reports, prescriptions)
+///   - Cached app data via Hive with AES-256 encryption (M-04 fix)
+///
+/// M-04 FIX: Previously, all Hive boxes were opened without encryption.
+/// The patient profile box stores fields like bloodGroup, allergies, and
+/// diseases — the same fields that are encrypted in MongoDB. On Android,
+/// Hive data is stored in the app's files directory and is readable on
+/// rooted devices or via ADB backup even with encryptedSharedPreferences=true
+/// (that only protects SharedPreferences, not arbitrary files).
+///
+/// Fix: a 256-bit AES encryption key is generated once and stored in
+/// flutter_secure_storage (backed by Android Keystore / iOS Keychain).
+/// All Hive boxes that hold health data are opened with this cipher.
+/// The meta and prescriptions boxes (which hold non-sensitive data like
+/// timestamps and timestamps) are also encrypted for consistency.
 class LocalCacheService {
   LocalCacheService._();
   static final LocalCacheService instance = LocalCacheService._();
@@ -18,20 +32,44 @@ class LocalCacheService {
   static const _reportsBox       = 'reports';
   static const _prescriptionsBox = 'prescriptions';
   static const _metaBox          = 'meta';
+  static const _notificationsBox = 'notifications';
 
   // ── Secure storage keys ───────────────────────────────────────────────────
-  static const _kAccessToken  = 'access_token';
-  static const _kRefreshToken = 'refresh_token';
+  static const _kAccessToken   = 'access_token';
+  static const _kRefreshToken  = 'refresh_token';
+  static const _kHiveKey       = 'hive_encryption_key'; // M-04
 
   // ── Initialisation ────────────────────────────────────────────────────────
 
   /// Must be called once at app startup before using any cache methods.
+  ///
+  /// M-04: Retrieves (or generates) the AES-256 Hive encryption key from
+  /// flutter_secure_storage, then opens all boxes with that cipher.
   static Future<void> init() async {
     await Hive.initFlutter();
-    await Hive.openBox(_profileBox);
-    await Hive.openBox(_reportsBox);
-    await Hive.openBox(_prescriptionsBox);
-    await Hive.openBox(_metaBox);
+
+    // M-04: get or create the encryption key
+    final cipher = await _getHiveCipher();
+
+    await Hive.openBox(_profileBox,       encryptionCipher: cipher);
+    await Hive.openBox(_reportsBox,       encryptionCipher: cipher);
+    await Hive.openBox(_prescriptionsBox, encryptionCipher: cipher);
+    await Hive.openBox(_metaBox,          encryptionCipher: cipher);
+    await Hive.openBox(_notificationsBox, encryptionCipher: cipher);
+  }
+
+  /// Returns a HiveAesCipher backed by a key stored in flutter_secure_storage.
+  /// Generates and stores a new 256-bit key on first run.
+  static Future<HiveAesCipher> _getHiveCipher() async {
+    String? encoded = await _secureStorage.read(key: _kHiveKey);
+    if (encoded == null) {
+      // Generate a cryptographically secure 256-bit (32-byte) AES key
+      final key = Hive.generateSecureKey();
+      encoded = base64UrlEncode(key);
+      await _secureStorage.write(key: _kHiveKey, value: encoded);
+    }
+    final keyBytes = base64Url.decode(encoded);
+    return HiveAesCipher(keyBytes);
   }
 
   // ── Token management (secure storage) ────────────────────────────────────
@@ -58,7 +96,7 @@ class LocalCacheService {
 
   // ── Profile cache ─────────────────────────────────────────────────────────
 
-  /// Saves the latest patient/doctor profile to Hive.
+  /// Saves the latest patient/doctor profile to Hive (AES-encrypted).
   Future<void> saveProfile(Map<String, dynamic> profile) async {
     final box = Hive.box(_profileBox);
     await box.put('data', profile);
@@ -105,6 +143,26 @@ class LocalCacheService {
     return (raw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
+  // ── Notifications cache (last 50) ─────────────────────────────────────────
+
+  Future<void> saveNotification(Map<String, dynamic> notification) async {
+    final box = Hive.box(_notificationsBox);
+    final list = box.get('list', defaultValue: []) as List;
+    list.insert(0, {
+      ...notification,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+    if (list.length > 50) list.removeLast();
+    await box.put('list', list);
+  }
+
+  List<Map<String, dynamic>> getCachedNotifications() {
+    final box = Hive.box(_notificationsBox);
+    final raw = box.get('list');
+    if (raw == null) return [];
+    return (raw as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
   // ── Timestamp helpers ─────────────────────────────────────────────────────
 
   Future<void> _saveTimestamp(String key) async {
@@ -143,11 +201,14 @@ class LocalCacheService {
   // ── Full clear (logout) ───────────────────────────────────────────────────
 
   /// Clears all cached data and tokens. Call on logout.
+  /// Note: the Hive encryption key is intentionally retained so the user
+  /// can log back in without needing to re-initialise the cipher.
   Future<void> clearAll() async {
     await clearTokens();
     await Hive.box(_profileBox).clear();
     await Hive.box(_reportsBox).clear();
     await Hive.box(_prescriptionsBox).clear();
     await Hive.box(_metaBox).clear();
+    await Hive.box(_notificationsBox).clear();
   }
 }

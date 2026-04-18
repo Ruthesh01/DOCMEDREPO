@@ -35,6 +35,10 @@ const prescriptionSchema = new mongoose.Schema(
       type:      String,
       maxlength: [1000, 'Notes cannot exceed 1000 characters'],
     },
+    active: {
+      type:      Boolean,
+      default:   true,
+    },
   },
   { timestamps: true }
 );

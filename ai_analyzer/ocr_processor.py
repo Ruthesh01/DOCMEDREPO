@@ -85,19 +85,33 @@ def _extract_from_digital_pdf(pdf_bytes: bytes) -> str:
     Extracts text from a digitally-created PDF using pdfplumber.
     Much faster and more accurate than OCR for digital PDFs.
 
+    L-03 FIX: Accumulation is now capped at 15,000 characters. A corrupt or
+    adversarial PDF with thousands of pages would previously accumulate an
+    unbounded string before the 12,000-char truncation in the analyzer.
+    Extraction exits early once the cap is reached, saving CPU and memory.
+
     Args:
         pdf_bytes: Raw PDF file bytes
 
     Returns:
-        Concatenated text from all pages
+        Concatenated text from all pages (up to 15,000 chars)
     """
+    MAX_EXTRACT_CHARS = 15_000
     text_parts = []
+    total_chars = 0
+
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
             page_text = page.extract_text()
             if page_text:
                 text_parts.append(page_text)
+                total_chars += len(page_text)
                 logger.debug(f"Page {page_num}: extracted {len(page_text)} chars via pdfplumber")
+                if total_chars >= MAX_EXTRACT_CHARS:
+                    logger.info(
+                        f"Reached {MAX_EXTRACT_CHARS}-char cap at page {page_num} — stopping early"
+                    )
+                    break
     return "\n\n".join(text_parts)
 
 

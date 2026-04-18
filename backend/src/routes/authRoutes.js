@@ -5,9 +5,10 @@ const { body } = require('express-validator');
 const {
   registerPatient, registerDoctor, login,
   verifyOtp, refreshToken, logout, changePassword,
+  forgotPassword, resetPassword
 } = require('../controllers/authController');
 const { authenticate } = require('../middleware/authMiddleware');
-const { authLimiter } = require('../middleware/rateLimiter');
+const { authLimiter, otpLimiter } = require('../middleware/rateLimiter');
 const { audit } = require('../middleware/auditLogger');
 
 const router = Router();
@@ -36,13 +37,27 @@ const loginValidation = [
   body('role').isIn(['patient', 'doctor']).withMessage('Role must be patient or doctor'),
 ];
 
+const forgotPasswordValidation = [
+  body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+  body('role').isIn(['patient', 'doctor']).withMessage('Role must be patient or doctor'),
+];
+
+const resetPasswordValidation = [
+  body('token').notEmpty().withMessage('Token is required'),
+  body('role').isIn(['patient', 'doctor']).withMessage('Role must be patient or doctor'),
+  body('newPassword').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+];
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 router.post('/register/patient', authLimiter, patientRegisterValidation, registerPatient);
 router.post('/register/doctor',  authLimiter, doctorRegisterValidation,  registerDoctor);
 router.post('/login',            authLimiter, loginValidation, audit('LOGIN'), login);
-router.post('/verify-otp',       authLimiter, verifyOtp);
+router.post('/verify-otp',       otpLimiter,  verifyOtp);
 router.post('/refresh-token',    refreshToken);
 router.post('/logout',           logout);
 router.post('/change-password',  authenticate, audit('CHANGE_PASSWORD'), changePassword);
+
+router.post('/forgot-password',  authLimiter, forgotPasswordValidation, forgotPassword);
+router.post('/reset-password',   authLimiter, resetPasswordValidation,  resetPassword);
 
 module.exports = router;

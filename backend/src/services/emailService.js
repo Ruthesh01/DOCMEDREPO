@@ -58,4 +58,40 @@ async function sendOtpEmail(to, name, otp) {
   console.log(`[Email] OTP sent to ${to}`);
 }
 
-module.exports = { sendOtpEmail };
+/**
+ * Sends a password reset email.
+ * @param {string} to - User's email address
+ * @param {string} name - User's name
+ * @param {string} resetLink - Password reset link
+ * @returns {Promise<void>}
+ */
+async function sendPasswordResetEmail(to, name, resetLink) {
+  if (process.env.NODE_ENV === 'test') return;
+
+  const t = getTransporter();
+
+  await t.sendMail({
+    from:    `"DocMedRepo Security" <${process.env.SMTP_USER}>`,
+    to,
+    subject: 'Reset Your DocMedRepo Password',
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: auto;">
+        <h2>Hello, ${name}</h2>
+        <p>You recently requested to reset your password for your DocMedRepo account. Click the button below to reset it.</p>
+        <p>
+          <a href="${resetLink}" style="display: inline-block; padding: 12px 24px; background-color: #1a73e8; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">Reset Password</a>
+        </p>
+        <p>If the button doesn't work, you can copy and paste the following link into your browser:</p>
+        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>This password reset link is only valid for <strong>1 hour</strong>.</p>
+        <p>If you did not request a password reset, please ignore this email.</p>
+        <hr/>
+        <p style="font-size: 12px; color: #999;">DocMedRepo — Secure Medical Records</p>
+      </div>
+    `,
+  });
+
+  console.log(`[Email] Password reset sent to ${to}`);
+}
+
+module.exports = { sendOtpEmail, sendPasswordResetEmail };

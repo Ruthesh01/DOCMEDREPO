@@ -11,6 +11,10 @@ const Patient = require('../models/Patient');
 
 const AI_SERVICE_URL = process.env.AI_ANALYZER_URL || 'http://localhost:8000';
 
+// Shared secret sent as a header so FastAPI can reject unknown callers.
+// Must match AI_SERVICE_SECRET in the FastAPI environment (H-01 fix).
+const AI_SERVICE_SECRET = process.env.AI_SERVICE_SECRET || '';
+
 /**
  * Processes a single AI analysis job.
  * Fetches the report, calls the FastAPI analyzer, updates the DB,
@@ -30,50 +34,61 @@ async function processAnalysisJob(job) {
   }
 
   let result;
+  // L-05 FIX: Pass the Bull job ID as X-Correlation-Id so FastAPI logs and
+  // Node logs can be matched when debugging a specific report failure.
+  const correlationHeaders = { 'X-Correlation-Id': String(job.id) };
 
   if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
     // In dev mode, the file is saved locally. We read it and POST as multipart to FastAPI.
     const filePath = path.join(__dirname, '../../uploads', report.fileUrl);
     if (!fs.existsSync(filePath)) throw new Error(`Local file missing at ${filePath}`);
-    
+
     const form = new FormData();
     form.append('file', fs.createReadStream(filePath), {
-      contentType: report.fileType === 'pdf' ? 'application/pdf' : `image/${report.fileType === 'jpg' ? 'jpeg' : report.fileType}`
+      contentType: report.fileType === 'pdf'
+        ? 'application/pdf'
+        : `image/${report.fileType === 'jpg' ? 'jpeg' : report.fileType}`,
     });
 
     const response = await axios.post(`${AI_SERVICE_URL}/analyze/upload`, form, {
-      headers: { ...form.getHeaders() },
-      timeout: 60000
+      headers: {
+        ...form.getHeaders(),
+        'X-Internal-Secret': AI_SERVICE_SECRET,
+        ...correlationHeaders,  // L-05: correlation ID for cross-service tracing
+      },
+      timeout: 60000,
     });
     result = response.data;
   } else {
-    // In production, send the S3 key and let FastAPI download it securely
+    // In production, send the S3 key and let FastAPI download it securely.
     const response = await axios.post(
       `${AI_SERVICE_URL}/analyze`,
       { s3_key: report.fileUrl, file_type: report.fileType },
-      { timeout: 60000 } // 60s timeout for AI processing
+      {
+        headers: {
+          'X-Internal-Secret': AI_SERVICE_SECRET,
+          ...correlationHeaders,  // L-05: correlation ID for cross-service tracing
+        },
+        timeout: 60000,
+      }
     );
     result = response.data;
   }
 
-  // result already assigned above
-
-  // Append low-confidence warning to summaries if needed
-  const lowConfidence = result.confidence_score < 0.6;
-  const warning = lowConfidence
-    ? '\n\n⚠️ Low confidence result. Please have a doctor review this report.'
-    : '';
-
+  // H-02 FIX: The FastAPI analyzer already appends the low-confidence warning
+  // to both summaries when confidence_score < 0.6. The previous code appended
+  // it again here, causing every low-confidence report to show the warning
+  // twice to the patient and doctor. The duplicate append is removed entirely.
   await Report.findByIdAndUpdate(reportId, {
     analysisStatus: 'complete',
     aiSummary: {
-      diagnoses:            result.diagnoses            || [],
-      abnormalValues:       result.abnormal_values      || [],
+      diagnoses:            result.diagnoses             || [],
+      abnormalValues:       result.abnormal_values       || [],
       medicationsMentioned: result.medications_mentioned || [],
-      summaryForPatient:    (result.summary_for_patient || '') + warning,
-      summaryForDoctor:     (result.summary_for_doctor  || '') + warning,
-      confidenceScore:      result.confidence_score     || 0,
-      source:               result.source               || 'primary',
+      summaryForPatient:    result.summary_for_patient   || '',
+      summaryForDoctor:     result.summary_for_doctor    || '',
+      confidenceScore:      result.confidence_score      || 0,
+      source:               result.source                || 'primary',
     },
   });
 
@@ -82,8 +97,8 @@ async function processAnalysisJob(job) {
     await sendPushNotification(
       report.patientId.fcmToken,
       {
-        title: 'Report Analysis Ready',
-        body:  'Your medical report has been analysed. Tap to view results.',
+        title: 'Your report is ready',
+        body:  'AI analysis complete. Tap to view your results.',
         data:  { type: 'report_ready', reportId: report._id.toString() },
       }
     );
@@ -112,8 +127,8 @@ async function handleFailedJob(job, err) {
     await sendPushNotification(
       report.patientId.fcmToken,
       {
-        title: 'Report Analysis Failed',
-        body:  'We could not analyse your report. Please contact support.',
+        title: 'Analysis failed',
+        body:  'We could not analyse your report. Please try re-uploading.',
         data:  { type: 'report_failed', reportId },
       }
     );
@@ -139,4 +154,4 @@ function initWorker() {
   console.log('[AIWorker] Worker initialised and listening for jobs');
 }
 
-module.exports = { initWorker };
+module.exports = { initWorker, processAnalysisJob };

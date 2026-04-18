@@ -66,7 +66,7 @@ async function uploadFileToS3(buffer, fileType, userId) {
  */
 async function generateSignedUrl(s3Key) {
   if (process.env.NODE_ENV === 'test') return `https://mock-signed-url/${s3Key}`;
-  if (process.env.NODE_ENV === 'development') return `http://localhost:5000/api/reports/local/${encodeURIComponent(s3Key)}`;
+  if (process.env.NODE_ENV === 'development') return `http://localhost:5000/api/reports/local/${s3Key}`;
 
   const command = new GetObjectCommand({
     Bucket: BUCKET,

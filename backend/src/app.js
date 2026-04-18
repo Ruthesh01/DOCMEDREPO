@@ -13,6 +13,7 @@ const patientRoutes = require('./routes/patientRoutes');
 const doctorRoutes = require('./routes/doctorRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const qrRoutes = require('./routes/qrRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 
 const app = express();
 
@@ -53,8 +54,9 @@ app.use('/api/patients', patientRoutes);
 app.use('/api/doctors', doctorRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/qr', qrRoutes);
+app.use('/api/health', healthRoutes);
 
-// ── Health Check ─────────────────────────────────────────────────────────────
+// ── Root Health Check ─────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ── 404 Handler ──────────────────────────────────────────────────────────────

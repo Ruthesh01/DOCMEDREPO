@@ -12,6 +12,7 @@ const mongoose = require('mongoose');
 const app = require('../src/app');
 const Patient = require('../src/models/Patient');
 const Doctor  = require('../src/models/Doctor');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
 
 const validPatient = {
   name:             'Test Patient',
@@ -31,6 +32,7 @@ const validDoctor = {
 
 beforeAll(async () => {
   await mongoose.connect(process.env.MONGODB_URI);
+  await connectRedis();
 });
 
 afterEach(async () => {
@@ -41,6 +43,7 @@ afterEach(async () => {
 afterAll(async () => {
   await mongoose.connection.dropDatabase();
   await mongoose.connection.close();
+  await disconnectRedis();
 });
 
 // ── Patient Registration ─────────────────────────────────────────────────────

@@ -59,6 +59,16 @@ class _DoctorLoginScreenState extends State<DoctorLoginScreen> {
       _showOtp  = true;
       _doctorId = result['doctorId'] as String?;
     });
+
+    if (result['devOtp'] != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('DEV MODE: Your OTP is ${result["devOtp"]}'),
+          duration: const Duration(seconds: 10),
+          backgroundColor: Colors.blue.shade800,
+        ),
+      );
+    }
   }
 
   Future<void> _submitOtp() async {
@@ -258,7 +268,7 @@ class _OtpBox extends StatelessWidget {
           contentPadding: EdgeInsets.zero,
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: theme.colorScheme.outline.withOpacity(0.4)),
+            borderSide: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.4)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),

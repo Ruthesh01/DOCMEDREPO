@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
 import '../services/local_cache_service.dart';
+import '../services/notification_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   String? _role;
@@ -13,12 +14,20 @@ class AuthProvider extends ChangeNotifier {
   bool    get isLoggedIn  => _role != null;
   bool    get initialised => _initialised;
 
+  void _onLoginSuccess() {
+    if (_role != null) {
+      // Sync fcm-token for push notifications
+      NotificationService.instance.startTokenSync(_role!);
+    }
+    notifyListeners();
+  }
+
   Future<void> init() async {
     await ApiService.instance.loadToken();
     final token = await LocalCacheService.instance.getAccessToken();
     if (token != null) _role = _decodeRoleFromJwt(token);
     _initialised = true;
-    notifyListeners();
+    _onLoginSuccess();
   }
 
   Future<String?> loginPatient({required String email, required String password}) async {
@@ -26,18 +35,54 @@ class AuthProvider extends ChangeNotifier {
       final data = await ApiService.instance.login({'email': email, 'password': password, 'role': 'patient'});
       await ApiService.instance.saveTokens(accessToken: data['accessToken'] as String, refreshToken: data['refreshToken'] as String);
       _role = 'patient';
-      notifyListeners();
+      _onLoginSuccess();
       return null;
     } on ApiException catch (e) { return e.message; }
   }
 
+  /// Biometric login: authenticates locally then verifies the stored token
+  /// with the server before granting access.
+  ///
+  /// M-02 FIX: The previous implementation only decoded the role from the
+  /// locally stored JWT without making any network call. This meant:
+  ///   - Expired tokens were still accepted (user appeared logged in but all
+  ///     API calls would fail with 401 on the first real request).
+  ///   - Tokens invalidated after a password change were still accepted,
+  ///     allowing a user to bypass the forced re-login.
+  ///
+  /// Now we call GET /patients/me (or /doctors/me) to verify the token is
+  /// still valid server-side. On 401, tokens are cleared and the user is
+  /// redirected to the login screen.
   Future<bool> biometricLogin() async {
     final token = await LocalCacheService.instance.getAccessToken();
     if (token == null) return false;
+
     final decoded = _decodeRoleFromJwt(token);
     if (decoded == null) return false;
+
+    // M-02: server-side token validation — verifies token hasn't expired or
+    // been revoked (e.g. after a password change on another device).
+    try {
+      await ApiService.instance.loadToken();
+      if (decoded == 'patient') {
+        await ApiService.instance.getMyProfile();
+      } else {
+        await ApiService.instance.getDoctorProfile();
+      }
+    } on ApiException catch (e) {
+      if (e.isUnauthorized) {
+        // Token is no longer valid — clear it and reject biometric login
+        await LocalCacheService.instance.clearAll();
+        return false;
+      }
+      // Non-auth error (network timeout etc.) — allow optimistic login
+      // so the app remains usable offline. The next API call will handle 401.
+    } catch (_) {
+      // Network error — allow optimistic offline access
+    }
+
     _role = decoded;
-    notifyListeners();
+    _onLoginSuccess();
     return true;
   }
 
@@ -53,14 +98,18 @@ class AuthProvider extends ChangeNotifier {
       final data = await ApiService.instance.login({'email': email, 'password': password, 'role': 'doctor'});
       if (data.containsKey('accessToken')) {
         await ApiService.instance.saveTokens(
-          accessToken: data['accessToken'] as String, 
+          accessToken: data['accessToken'] as String,
           refreshToken: data['refreshToken'] as String
         );
         _role = 'doctor';
-        notifyListeners();
+        _onLoginSuccess();
         return {'doctorId': null, 'completed': true};
       }
-      return {'doctorId': data['doctorId'], 'completed': false};
+      return {
+        'doctorId': data['doctorId'], 
+        'completed': false,
+        'devOtp': data['devOtp'] // DEV ONLY
+      };
     } on ApiException catch (e) { return {'error': e.message}; }
   }
 
@@ -68,8 +117,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       final data = await ApiService.instance.verifyOtp(doctorId, otp);
       await ApiService.instance.saveTokens(accessToken: data['accessToken'] as String, refreshToken: data['refreshToken'] as String);
-      _role = data['role'] as String? ?? 'doctor';
-      notifyListeners();
+      _role = 'doctor';
+      _onLoginSuccess();
       return null;
     } on ApiException catch (e) { return e.message; }
   }

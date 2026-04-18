@@ -3,6 +3,9 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../services/api_service.dart';
+import '../services/local_cache_service.dart';
+
 /// Handles all push notification setup and routing for DocMedRepo.
 ///
 /// Notification types:
@@ -23,10 +26,10 @@ class NotificationService {
   final _local = FlutterLocalNotificationsPlugin();
 
   // Navigation callback — set by main.dart after MaterialApp is built
-  void Function(String type, String? resourceId)? _onNotificationTap;
+  Future<void> Function(String type, String? resourceId)? _onNotificationTap;
 
   void setNavigationCallback(
-    void Function(String type, String? resourceId) callback,
+    Future<void> Function(String type, String? resourceId) callback,
   ) {
     _onNotificationTap = callback;
   }
@@ -95,11 +98,39 @@ class NotificationService {
   /// Returns the device's FCM token for saving to the server.
   Future<String?> getToken() async => _fcm?.getToken();
 
+  /// Starts syncing the FCM token with the backend. Call after login.
+  void startTokenSync(String role) {
+    _fcm?.getToken().then((token) {
+      if (token != null) _sendTokenToServer(role, token);
+    });
+
+    _fcm?.onTokenRefresh.listen((token) {
+      _sendTokenToServer(role, token);
+    });
+  }
+
+  Future<void> _sendTokenToServer(String role, String token) async {
+    try {
+      await ApiService.instance.updateFcmToken(role, token);
+      debugPrint('[FCM] Token synced for role: $role');
+    } catch (e) {
+      debugPrint('[FCM] Failed to update token: $e');
+    }
+  }
+
   // ── Foreground message handling ───────────────────────────────────────────
 
   void _handleForegroundMessage(RemoteMessage message) {
     final notification = message.notification;
     if (notification == null) return;
+    
+    final payloadStr = jsonEncode(message.data);
+    
+    LocalCacheService.instance.saveNotification({
+      'title': notification.title,
+      'body': notification.body,
+      'payload': payloadStr,
+    });
 
     _local.show(
       message.hashCode,
@@ -120,7 +151,7 @@ class NotificationService {
           presentSound: true,
         ),
       ),
-      payload: jsonEncode(message.data),
+      payload: payloadStr,
     );
   }
 
@@ -143,15 +174,23 @@ class NotificationService {
 
   // ── Local medication reminder ─────────────────────────────────────────────
 
-  /// Shows an immediate local notification for a medication reminder.
   Future<void> showMedicationReminder({
     required String medicationName,
     required String dosage,
   }) async {
+    const title = '💊 Medication Reminder';
+    final body = 'Time to take $medicationName — $dosage';
+    
+    LocalCacheService.instance.saveNotification({
+      'title': title,
+      'body': body,
+      'payload': '{}',
+    });
+
     await _local.show(
       medicationName.hashCode,
-      '💊 Medication Reminder',
-      'Time to take $medicationName — $dosage',
+      title,
+      body,
       NotificationDetails(
         android: AndroidNotificationDetails(
           'docmed_main',

@@ -15,6 +15,7 @@ const fs       = require('fs');
 const app      = require('../src/app');
 const Patient  = require('../src/models/Patient');
 const Report   = require('../src/models/Report');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
 
 // ── Minimal valid PDF buffer (magic bytes %PDF) ──────────────────────────────
 const validPdfBuffer = Buffer.concat([
@@ -49,6 +50,7 @@ let otherPatientToken;
 
 beforeAll(async () => {
   await mongoose.connect(process.env.MONGODB_URI);
+  await connectRedis();
 });
 
 beforeEach(async () => {
@@ -71,6 +73,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await mongoose.connection.dropDatabase();
   await mongoose.connection.close();
+  await disconnectRedis();
 });
 
 // ── POST /api/reports/upload ─────────────────────────────────────────────────
@@ -119,12 +122,8 @@ describe('POST /api/reports/upload', () => {
   });
 
   it('401 — rejects unauthenticated upload', async () => {
-    const tmpPath = path.join('/tmp', 'test.pdf');
-    fs.writeFileSync(tmpPath, validPdfBuffer);
-
     const res = await request(app)
-      .post('/api/reports/upload')
-      .attach('report', tmpPath);
+      .post('/api/reports/upload');
 
     expect(res.status).toBe(401);
   });

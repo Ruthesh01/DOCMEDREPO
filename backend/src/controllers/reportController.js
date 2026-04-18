@@ -83,6 +83,42 @@ async function uploadReport(req, res, next) {
 }
 
 /**
+ * Retrieves a single report's details.
+ * GET /api/reports/:id
+ */
+async function getReport(req, res, next) {
+  try {
+    const report = await Report.findById(req.params.id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    if (req.role === 'patient') {
+      if (report.patientId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.role === 'doctor' || req.role === 'admin') {
+      const { token } = req.query;
+      if (!token) return res.status(400).json({ error: 'QR token is required' });
+      
+      const QrToken = require('../models/QrToken');
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const qrRecord = await QrToken.findOne({
+        token,
+        patientId: report.patientId,
+        used:      true,
+        expiresAt: { $gt: twentyFourHoursAgo },
+      });
+      if (!qrRecord) {
+        return res.status(401).json({ error: 'Valid QR token is required' });
+      }
+    }
+
+    res.status(200).json({ report });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * Returns a pre-signed S3 URL (15 min expiry) for a specific report.
  * GET /api/reports/:id/url
  */
@@ -91,16 +127,69 @@ async function getReportUrl(req, res, next) {
     const report = await Report.findById(req.params.id);
     if (!report) return res.status(404).json({ error: 'Report not found' });
 
-    // Patients can only access their own reports
-    if (
-      req.role === 'patient' &&
-      report.patientId.toString() !== req.user._id.toString()
-    ) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (req.role === 'patient') {
+      if (report.patientId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.role === 'doctor' || req.role === 'admin') {
+      const { token } = req.query;
+      if (!token) return res.status(400).json({ error: 'QR token is required' });
+      
+      const QrToken = require('../models/QrToken');
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const qrRecord = await QrToken.findOne({
+        token,
+        patientId: report.patientId,
+        used:      true,
+        expiresAt: { $gt: twentyFourHoursAgo },
+      });
+      if (!qrRecord) {
+        return res.status(401).json({ error: 'Valid QR token is required' });
+      }
     }
 
     const url = await getSignedUrl(report.fileUrl);
     res.status(200).json({ url, expiresInSeconds: 900 });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Retrieves only the analysis status of a report.
+ * GET /api/reports/:id/status
+ */
+async function getReportStatus(req, res, next) {
+  try {
+    const report = await Report.findById(req.params.id).select('analysisStatus updatedAt patientId');
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    if (req.role === 'patient') {
+      if (report.patientId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.role === 'doctor' || req.role === 'admin') {
+      const { token } = req.query;
+      if (!token) return res.status(400).json({ error: 'QR token is required' });
+      
+      const QrToken = require('../models/QrToken');
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const qrRecord = await QrToken.findOne({
+        token,
+        patientId: report.patientId,
+        used:      true,
+        expiresAt: { $gt: twentyFourHoursAgo },
+      });
+      if (!qrRecord) {
+        return res.status(401).json({ error: 'Valid QR token is required' });
+      }
+    }
+
+    res.status(200).json({
+      id: report._id,
+      analysisStatus: report.analysisStatus,
+      updatedAt: report.updatedAt
+    });
   } catch (err) {
     next(err);
   }
@@ -137,14 +226,16 @@ function getLocalReportFile(req, res, next) {
     const s3Key = req.params[0]; // the * part of the route
     if (!s3Key) return res.status(400).json({ error: 'No file specified' });
 
-    const filePath = path.join(__dirname, '../../../uploads', s3Key);
+    const uploadsDir = path.resolve(__dirname, '../../../uploads');
+    const filePath = path.resolve(uploadsDir, s3Key);
+
+    // Security: prevent directory traversal
+    if (!filePath.startsWith(uploadsDir + path.sep) && filePath !== uploadsDir) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Local file not found' });
-    }
-    
-    // Basic security check to prevent directory traversal
-    if (!filePath.startsWith(path.join(__dirname, '../../../uploads'))) {
-       return res.status(403).json({ error: 'Access denied' });
     }
 
     res.sendFile(filePath);
@@ -153,4 +244,4 @@ function getLocalReportFile(req, res, next) {
   }
 }
 
-module.exports = { uploadReport, getReportUrl, deleteReport, getLocalReportFile };
+module.exports = { uploadReport, getReport, getReportStatus, getReportUrl, deleteReport, getLocalReportFile };

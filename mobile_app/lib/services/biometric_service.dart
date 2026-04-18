@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'local_cache_service.dart';
@@ -13,6 +14,8 @@ class BiometricService {
   /// Returns true if the device supports biometric authentication AND
   /// the user has at least one enrolled biometric (fingerprint/face).
   Future<bool> isAvailable() async {
+    // local_auth is not supported on Flutter web.
+    if (kIsWeb) return false;
     try {
       final canCheck  = await _auth.canCheckBiometrics;
       final isDevice  = await _auth.isDeviceSupported();
@@ -35,6 +38,8 @@ class BiometricService {
   Future<bool> authenticate({
     String reason = 'Authenticate to access your medical records',
   }) async {
+    // On web we silently skip biometric auth and fall back to normal flow.
+    if (kIsWeb) return false;
     try {
       return await _auth.authenticate(
         localizedReason: reason,

@@ -1,21 +1,69 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 import 'doctor_add_prescription_screen.dart';
+import 'report_detail_screen.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/error_state.dart';
 
 /// Displays a scanned patient's profile to the doctor.
 /// Accessible only after a valid QR scan.
-class DoctorPatientDetailsScreen extends StatelessWidget {
+class DoctorPatientDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> patient;
-  const DoctorPatientDetailsScreen({super.key, required this.patient});
+  final String qrToken;
+
+  const DoctorPatientDetailsScreen({
+    super.key,
+    required this.patient,
+    required this.qrToken,
+  });
+
+  @override
+  State<DoctorPatientDetailsScreen> createState() => _DoctorPatientDetailsScreenState();
+}
+
+class _DoctorPatientDetailsScreenState extends State<DoctorPatientDetailsScreen> {
+  List<Map<String, dynamic>> _reports = [];
+  bool _reportsLoaded = false;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  Future<void> _loadReports() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final patientId = widget.patient['_id'] as String;
+      final data = await ApiService.instance.getPatientReports(patientId, widget.qrToken);
+      setState(() {
+        _reports = List<Map<String, dynamic>>.from(
+            (data['reports'] as List).map((e) => Map<String, dynamic>.from(e)));
+        _loading = false;
+        _reportsLoaded = true;
+      });
+    } on ApiException catch (e) {
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme  = Theme.of(context);
-    final name   = patient['name'] as String? ?? 'Patient';
-    final email  = patient['email'] as String? ?? '';
-    final blood  = patient['bloodGroup'] as String? ?? 'Unknown';
+    final theme = Theme.of(context);
+    final patient = widget.patient;
+    final name = patient['name'] as String? ?? 'Patient';
+    final email = patient['email'] as String? ?? '';
+    final blood = patient['bloodGroup'] as String? ?? 'Unknown';
     final allerg = List<String>.from(patient['allergies'] as List? ?? []);
     final diseas = List<String>.from(patient['diseases'] as List? ?? []);
-    final ec     = patient['emergencyContact'] as Map<String, dynamic>?;
+    final ec = patient['emergencyContact'] as Map<String, dynamic>?;
 
     return Scaffold(
       appBar: AppBar(
@@ -28,7 +76,7 @@ class DoctorPatientDetailsScreen extends StatelessWidget {
               context,
               MaterialPageRoute(
                 builder: (_) => DoctorAddPrescriptionScreen(
-                  patientId:   patient['_id'] as String,
+                  patientId: patient['_id'] as String,
                   patientName: name,
                 ),
               ),
@@ -49,7 +97,7 @@ class DoctorPatientDetailsScreen extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 28,
-                      backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
+                      backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.12),
                       child: Text(
                         name[0].toUpperCase(),
                         style: TextStyle(
@@ -106,12 +154,42 @@ class DoctorPatientDetailsScreen extends StatelessWidget {
                 icon: Icons.emergency_outlined,
                 iconColor: theme.colorScheme.error,
                 content: [
-                  Text('${ec['name']} (${ec['relation']})',
-                      style: theme.textTheme.bodyMedium),
-                  Text(ec['phone'] as String? ?? '',
-                      style: theme.textTheme.bodySmall),
+                  Text('${ec['name']} (${ec['relation']})', style: theme.textTheme.bodyMedium),
+                  Text(ec['phone'] as String? ?? '', style: theme.textTheme.bodySmall),
                 ],
               ),
+
+            const SizedBox(height: 24),
+
+            // Patient Reports
+            Row(
+              children: [
+                Icon(Icons.description_outlined, size: 18, color: theme.colorScheme.secondary),
+                const SizedBox(width: 8),
+                Text('Patient Reports', style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            if (!_reportsLoaded && !_loading)
+              ElevatedButton.icon(
+                onPressed: _loadReports,
+                icon: const Icon(Icons.visibility),
+                label: const Text('View Reports'),
+                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              )
+            else if (_loading)
+              const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+            else if (_error != null)
+              ErrorState(message: _error!, onRetry: _loadReports)
+            else if (_reports.isEmpty)
+              const EmptyState(
+                icon: Icons.description_outlined,
+                title: 'No reports',
+                message: 'This patient has not uploaded any reports.',
+              )
+            else
+              ..._reports.map((r) => _ReportTile(report: r, isDoctorView: true, qrToken: widget.qrToken)),
 
             const SizedBox(height: 24),
 
@@ -120,7 +198,7 @@ class DoctorPatientDetailsScreen extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (_) => DoctorAddPrescriptionScreen(
-                    patientId:   patient['_id'] as String,
+                    patientId: patient['_id'] as String,
                     patientName: name,
                   ),
                 ),
@@ -131,8 +209,62 @@ class DoctorPatientDetailsScreen extends StatelessWidget {
                 minimumSize: const Size.fromHeight(52),
               ),
             ),
+            const SizedBox(height: 40),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ReportTile extends StatelessWidget {
+  final Map<String, dynamic> report;
+  final bool isDoctorView;
+  final String? qrToken;
+
+  const _ReportTile({required this.report, this.isDoctorView = false, this.qrToken});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final status = report['analysisStatus'] as String? ?? 'pending';
+
+    Color statusColor;
+    if (status == 'complete') statusColor = Colors.green;
+    else if (status == 'failed') statusColor = theme.colorScheme.error;
+    else if (status == 'processing') statusColor = Colors.orange;
+    else statusColor = Colors.grey;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(Icons.description_outlined, color: theme.colorScheme.secondary),
+        title: Text(report['description'] as String? ?? 'Medical Report',
+            style: theme.textTheme.titleSmall),
+        subtitle: Text('${(report['fileType'] as String? ?? '').toUpperCase()} · $status'),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: statusColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            status.toUpperCase(),
+            style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
+          ),
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ReportDetailScreen(
+                reportId: report['_id'] as String,
+                isDoctorView: isDoctorView,
+                qrToken: qrToken,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -185,7 +317,7 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(label,
@@ -201,9 +333,9 @@ class _BloodGroupBadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.red.withOpacity(0.1),
+          color: Colors.red.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.red.withOpacity(0.3)),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
         ),
         child: Text(group,
             style: const TextStyle(

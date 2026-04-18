@@ -12,6 +12,7 @@ const mongoose = require('mongoose');
 const app      = require('../src/app');
 const Patient  = require('../src/models/Patient');
 const Doctor   = require('../src/models/Doctor');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
 
 const validPatient = {
   name:             'Test Patient',
@@ -34,6 +35,7 @@ let doctorToken;
 
 beforeAll(async () => {
   await mongoose.connect(process.env.MONGODB_URI);
+  await connectRedis();
 });
 
 beforeEach(async () => {
@@ -58,6 +60,7 @@ beforeEach(async () => {
 afterAll(async () => {
   await mongoose.connection.dropDatabase();
   await mongoose.connection.close();
+  await disconnectRedis();
 });
 
 // ── GET /api/patients/me ─────────────────────────────────────────────────────
