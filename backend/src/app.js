@@ -59,6 +59,10 @@ app.use('/api/health', healthRoutes);
 // ── Root Health Check ─────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+app.get('/', (_req, res) => {
+  res.send('DocMedRepo API running');
+});
+
 // ── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));
 
